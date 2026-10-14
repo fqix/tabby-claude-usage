@@ -2,6 +2,10 @@
 
 A [Tabby](https://github.com/Eugeny/tabby) plugin that shows your Claude subscription usage (Claude Code / claude.ai plan limits) in a status bar at the bottom of the window. Approach borrowed from [CodexBar](https://github.com/steipete/CodexBar)'s Claude provider.
 
+## Install
+
+In Tabby: Settings → Plugins → search for `claude-usage` → Install, then restart Tabby.
+
 ## How it works
 
 - Reads Claude Code's OAuth login (read-only): `~/.claude/.credentials.json` (Linux / Windows, or `$CLAUDE_CONFIG_DIR`), and on macOS the Keychain item `Claude Code-credentials`.
@@ -32,4 +36,13 @@ npm install
 npm run build          # tsc -> dist/
 npm run install-local  # build and copy into Tabby's plugins dir (macOS / Linux / Windows)
 TABBY_PLUGINS=$(pwd) /Applications/Tabby.app/Contents/MacOS/Tabby   # run with this checkout
+```
+
+## Release
+
+Publishing runs in GitHub Actions ([publish.yml](.github/workflows/publish.yml)) when a `v*` tag is pushed. It needs an npm token in the repo secret `NPM_TOKEN`.
+
+```bash
+npm version patch          # bumps package.json and creates the vX.Y.Z tag
+git push --follow-tags     # triggers the publish workflow
 ```

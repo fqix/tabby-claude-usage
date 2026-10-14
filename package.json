@@ -2,8 +2,20 @@
   "name": "tabby-claude-usage",
   "version": "0.1.0",
   "description": "Show Claude (Claude Code subscription) usage limits in a Tabby status bar",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fqix/tabby-claude-usage.git"
+  },
+  "homepage": "https://github.com/fqix/tabby-claude-usage#readme",
+  "bugs": {
+    "url": "https://github.com/fqix/tabby-claude-usage/issues"
+  },
   "keywords": [
-    "tabby-plugin"
+    "tabby-plugin",
+    "claude",
+    "claude-code",
+    "usage",
+    "statusbar"
   ],
   "main": "dist/index.js",
   "files": [
@@ -12,7 +24,8 @@
   "scripts": {
     "build": "tsc -p .",
     "watch": "tsc -p . --watch",
-    "install-local": "npm run build && node scripts/install-local.js"
+    "install-local": "npm run build && node scripts/install-local.js",
+    "prepublishOnly": "npm run build"
   },
   "author": "fengqi",
   "license": "MIT",
@@ -30,5 +43,9 @@
     "tabby-settings": "^1.0.231-nightly.0",
     "typescript": "~5.4.0",
     "zone.js": "~0.13.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }
