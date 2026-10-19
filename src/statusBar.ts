@@ -1,8 +1,9 @@
 // Bottom status bar for Tabby. Tabby has no status bar API, so this mounts a small DOM bar
 // as the last child of <app-root> and shrinks the main window area to make room.
 
-import { ClaudeUsageConfig, DEFAULT_CONFIG } from './config'
-import { ClaudeUsage, UsageError, UsageWindow, fetchUsage } from './usage'
+import * as path from 'path'
+import { ClaudeUsageConfig, DEFAULT_CONFIG, FORMAT_KEYS } from './config'
+import { PROVIDERS, ProviderId, ProviderUsage, UsageError, UsageProvider, UsageWindow } from './providers'
 
 const RATE_LIMIT_BACKOFF_MS = 15 * 60 * 1000
 const TICK_MS = 30 * 1000
@@ -19,7 +20,10 @@ app-root:has(> #claude-usage-bar:not([hidden])) > .window { height: auto !import
 }
 #claude-usage-bar.cu-left { justify-content: flex-start; }
 #claude-usage-bar:hover { color: var(--theme-fg, #ddd); }
-#claude-usage-bar .cu-brand { color: #d97757; font-weight: 600; }
+#claude-usage-bar .cu-group { display: inline-flex; align-items: center; gap: 10px; }
+#claude-usage-bar .cu-brand { font-weight: 600; }
+#claude-usage-bar .cu-switch { cursor: pointer; border-radius: 3px; padding: 0 3px; margin: 0 -3px; }
+#claude-usage-bar .cu-switch:hover { background: rgba(128,128,128,.25); }
 #claude-usage-bar .cu-item { display: inline-flex; align-items: center; gap: 5px; }
 #claude-usage-bar .cu-label { opacity: .7; }
 #claude-usage-bar .cu-meter { width: 40px; height: 5px; border-radius: 3px; background: rgba(128,128,128,.25); overflow: hidden; }
@@ -34,13 +38,27 @@ app-root:has(> #claude-usage-bar:not([hidden])) > .window { height: auto !import
     border: 1px solid rgba(128,128,128,.3); box-shadow: 0 8px 24px rgba(0,0,0,.35);
 }
 #claude-usage-pop.cu-left { left: 8px; right: auto; }
+#claude-usage-menu {
+    position: fixed; z-index: 1001; min-width: 200px; padding: 4px; border-radius: 8px; font-size: 12px;
+    background: var(--theme-bg-more, #222); color: var(--theme-fg, #ddd);
+    border: 1px solid rgba(128,128,128,.3); box-shadow: 0 8px 24px rgba(0,0,0,.35);
+}
+#claude-usage-menu .cu-opt {
+    display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 5px; cursor: pointer; white-space: nowrap;
+}
+#claude-usage-menu .cu-opt:hover { background: rgba(128,128,128,.22); }
+#claude-usage-menu .cu-opt .cu-check { width: 12px; opacity: .8; }
+#claude-usage-menu .cu-opt .cu-brand { font-weight: 600; }
+#claude-usage-menu .cu-opt .cu-sum { margin-left: auto; padding-left: 16px; opacity: .6; font-size: 11px; font-variant-numeric: tabular-nums; }
 #claude-usage-pop h4 { margin: 0 0 8px; font-size: 12px; font-weight: 600; display: flex; justify-content: space-between; }
 #claude-usage-pop .cu-row { margin: 8px 0; }
 #claude-usage-pop .cu-row-head { display: flex; justify-content: space-between; margin-bottom: 3px; }
 #claude-usage-pop .cu-big { height: 6px; border-radius: 3px; background: rgba(128,128,128,.25); overflow: hidden; }
 #claude-usage-pop .cu-big > i { display: block; height: 100%; border-radius: 3px; }
 #claude-usage-pop .cu-sub { opacity: .6; font-size: 11px; }
-#claude-usage-pop .cu-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
+#claude-usage-pop .cu-foot { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+#claude-usage-pop .cu-foot .cu-sub { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#claude-usage-pop .cu-foot button { flex: none; }
 #claude-usage-pop button {
     font: inherit; font-size: 11px; padding: 2px 10px; border-radius: 4px; cursor: pointer;
     background: rgba(128,128,128,.2); color: inherit; border: 1px solid rgba(128,128,128,.35);
@@ -49,7 +67,6 @@ app-root:has(> #claude-usage-bar:not([hidden])) > .window { height: auto !import
 `
 
 const esc = (s: unknown): string => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!))
-
 
 function fmtDuration (ms: number): string {
     if (ms <= 0) { return 'now' }
@@ -66,24 +83,89 @@ function fmtAgo (date: Date): string {
     return `${fmtDuration(s * 1000)} ago`
 }
 
+/** Credential source for the popover: a file shows its name (full path on hover), others (e.g. Keychain) as is. */
+function sourceHtml (source: string): string {
+    return path.isAbsolute(source)
+        ? `<span title="${esc(source)}">${esc(path.basename(source))}</span>`
+        : esc(source)
+}
+
 const pct = (w: UsageWindow): number => Math.max(0, Math.min(100, Math.round(w.percent)))
 const resetIn = (w: UsageWindow | null): string => w?.resetsAt ? fmtDuration(w.resetsAt.getTime() - Date.now()) : ''
-const modelName = (w: UsageWindow): string => w.title.replace(/^Weekly \((.*)\)$/, '$1')
+
+interface ProviderState {
+    usage: ProviderUsage | null
+    error: UsageError | Error | null
+    loading: boolean
+    lastAttemptAt: number
+    backoffUntil: number
+}
+
+/** The tightest model-specific window (anything other than session/weekly), if any. */
+function modelWindow (u: ProviderUsage): UsageWindow | null {
+    return u.windows.filter(w => w !== u.session && w !== u.weekly).sort((a, b) => b.percent - a.percent)[0] ?? null
+}
+
+const SHORT_ERRORS: Record<string, string> = {
+    auth: 'login expired',
+    credentials: 'not logged in',
+    rateLimited: 'rate limited',
+    network: 'offline',
+    server: 'server error',
+}
+
+/** Short error label for the status bar; the full message is in the tooltip and the popover. */
+const shortError = (e: Error): string => (e instanceof UsageError && SHORT_ERRORS[e.kind]) || 'error'
 
 export class ClaudeUsageBar {
-    private usage: ClaudeUsage | null = null
-    private error: UsageError | Error | null = null
-    private loading = false
-    private lastAttemptAt = 0
-    private backoffUntil = 0
+    private states = new Map<ProviderId, ProviderState>(PROVIDERS.map(p => [p.id, {
+        usage: null, error: null, loading: false, lastAttemptAt: 0, backoffUntil: 0,
+    }]))
     private popOpen = false
     private bar!: HTMLDivElement
     private pop: HTMLDivElement | null = null
+    private menu: HTMLDivElement | null = null
 
-    constructor (private getConfig: () => Partial<ClaudeUsageConfig> | undefined) { }
+    constructor (
+        private getConfig: () => Partial<ClaudeUsageConfig> | undefined,
+        private setConfig: (patch: Partial<ClaudeUsageConfig>) => void,
+    ) { }
 
     private get cfg (): ClaudeUsageConfig {
         return { ...DEFAULT_CONFIG, ...this.getConfig() }
+    }
+
+    private state (p: UsageProvider): ProviderState {
+        return this.states.get(p.id)!
+    }
+
+    private isEnabled (p: UsageProvider, cfg = this.cfg): boolean {
+        return p.id === 'claude' ? cfg.showClaude : cfg.showCodex
+    }
+
+    /** Enabled providers worth showing: a provider without credentials is hidden rather than shown as an error. */
+    private visibleProviders (cfg = this.cfg): UsageProvider[] {
+        return PROVIDERS.filter(p => {
+            const err = this.state(p).error
+            return this.isEnabled(p, cfg) && !(err instanceof UsageError && err.kind === 'notConfigured')
+        })
+    }
+
+    /** The single provider shown in the bar: the chosen one, or the first available when it's off / not logged in. */
+    private activeProvider (cfg = this.cfg): UsageProvider | null {
+        const visible = this.visibleProviders(cfg)
+        return visible.find(p => p.id === cfg.barProvider) ?? visible[0] ?? null
+    }
+
+    /** Whether there is more than one provider to pick from. */
+    private canSwitch (cfg = this.cfg): boolean {
+        return this.visibleProviders(cfg).length > 1
+    }
+
+    private selectProvider (p: UsageProvider): void {
+        this.toggleMenu(false)
+        this.setConfig({ barProvider: p.id })
+        this.render()
     }
 
     start (): void {
@@ -96,12 +178,25 @@ export class ClaudeUsageBar {
         this.bar.id = 'claude-usage-bar'
         this.bar.addEventListener('click', e => {
             e.stopPropagation()
-            this.togglePop()
+            if ((e.target as HTMLElement).closest('[data-action="switch"]')) {
+                this.toggleMenu()
+            } else {
+                this.toggleMenu(false)
+                this.togglePop()
+            }
         })
         document.addEventListener('mousedown', e => {
             const target = e.target as Node
             if (this.popOpen && this.pop && !this.pop.contains(target) && !this.bar.contains(target)) {
                 this.togglePop(false)
+            }
+            if (this.menu && !this.menu.contains(target) && !this.bar.contains(target)) {
+                this.toggleMenu(false)
+            }
+        })
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape' && this.menu) {
+                this.toggleMenu(false)
             }
         })
 
@@ -135,11 +230,13 @@ export class ClaudeUsageBar {
         const cfg = this.cfg
         const intervalMs = Math.max(1, Number(cfg.refreshInterval) || DEFAULT_CONFIG.refreshInterval) * 60 * 1000
         const now = Date.now()
-        if (cfg.enabled && now >= this.backoffUntil && now - this.lastAttemptAt >= intervalMs) {
-            void this.refresh()
-        } else {
-            this.render()
+        for (const p of PROVIDERS) {
+            const st = this.state(p)
+            if (cfg.enabled && this.isEnabled(p, cfg) && now >= st.backoffUntil && now - st.lastAttemptAt >= intervalMs) {
+                void this.refresh(p)
+            }
         }
+        this.render()
     }
 
     private mount (): void {
@@ -149,22 +246,25 @@ export class ClaudeUsageBar {
         }
     }
 
-    async refresh (): Promise<void> {
-        if (this.loading) { return }
-        this.loading = true
-        this.lastAttemptAt = Date.now()
+    private async refresh (p: UsageProvider): Promise<void> {
+        const st = this.state(p)
+        if (st.loading) { return }
+        st.loading = true
+        st.lastAttemptAt = Date.now()
         this.render()
         try {
-            this.usage = await fetchUsage()
-            this.error = null
+            st.usage = await p.fetchUsage()
+            st.error = null
         } catch (e: any) {
-            this.error = e
+            st.error = e
             if (e instanceof UsageError && e.kind === 'rateLimited') {
-                this.backoffUntil = Date.now() + Math.max(e.retryAfterMs ?? 0, RATE_LIMIT_BACKOFF_MS)
+                st.backoffUntil = Date.now() + Math.max(e.retryAfterMs ?? 0, RATE_LIMIT_BACKOFF_MS)
             }
-            console.warn('[claude-usage]', e)
+            if (!(e instanceof UsageError && e.kind === 'notConfigured')) {
+                console.warn(`[claude-usage] ${p.name}:`, e)
+            }
         } finally {
-            this.loading = false
+            st.loading = false
             this.render()
         }
     }
@@ -176,48 +276,54 @@ export class ClaudeUsageBar {
         return '#57ab5a'
     }
 
-    /** The tightest model-scoped weekly window, if any. */
-    private modelWindow (u: ClaudeUsage): UsageWindow | null {
-        return u.windows.filter(w => w !== u.session && w !== u.weekly).sort((a, b) => b.percent - a.percent)[0] ?? null
-    }
-
-    private renderItems (u: ClaudeUsage, cfg: ClaudeUsageConfig): string[] {
-        const item = (label: string, w: UsageWindow | null): string => w
-            ? `<span class="cu-item"><span class="cu-label">${esc(label)}</span>` +
+    private renderItems (u: ProviderUsage, cfg: ClaudeUsageConfig): string[] {
+        const item = (w: UsageWindow | null): string => w
+            ? `<span class="cu-item"><span class="cu-label">${esc(w.label)}</span>` +
               (cfg.showMeters ? `<span class="cu-meter"><i style="width:${pct(w)}%;background:${this.color(pct(w))}"></i></span>` : '') +
               `<span${cfg.showMeters ? '' : ` style="color:${this.color(pct(w))}"`}>${pct(w)}%</span>` +
               (cfg.showResetTime && w.resetsAt ? `<span class="cu-reset">↻${resetIn(w)}</span>` : '') +
               '</span>'
             : ''
         const parts: string[] = []
-        if (cfg.showSession) { parts.push(item('5h', u.session)) }
-        if (cfg.showWeekly) { parts.push(item('7d', u.weekly)) }
-        const model = this.modelWindow(u)
-        if (cfg.showModelWeekly && model) { parts.push(item(modelName(model), model)) }
+        if (cfg.showSession) { parts.push(item(u.session)) }
+        if (cfg.showWeekly) { parts.push(item(u.weekly)) }
+        const model = modelWindow(u)
+        if (cfg.showModelWeekly && model) { parts.push(item(model)) }
         if (cfg.showExtraUsage && u.extra) {
-            parts.push(`<span class="cu-item"><span class="cu-label">extra</span><span>${u.extra.used.toFixed(2)}/${u.extra.limit.toFixed(0)} ${esc(u.extra.currency)}</span></span>`)
+            parts.push(`<span class="cu-item"><span class="cu-label">${esc(u.extra.label)}</span><span>${esc(u.extra.text)}</span></span>`)
         }
         return parts
     }
 
     /** Fill the user's custom format template; percentages are colored by threshold. */
-    private renderFormat (u: ClaudeUsage, format: string): string {
+    private renderFormat (format: string): string {
         const percent = (w: UsageWindow | null): string => w
             ? `<span style="color:${this.color(pct(w))}">${pct(w)}%</span>`
             : '–'
-        const model = this.modelWindow(u)
-        const values: Record<string, string> = {
-            session: percent(u.session),
-            session_reset: esc(resetIn(u.session)),
-            weekly: percent(u.weekly),
-            weekly_reset: esc(resetIn(u.weekly)),
-            model: percent(model),
-            model_name: esc(model ? modelName(model) : ''),
-            model_reset: esc(resetIn(model)),
-            extra: u.extra ? esc(`${u.extra.used.toFixed(2)}/${u.extra.limit.toFixed(0)} ${u.extra.currency}`) : '',
-            plan: esc(u.plan?.toUpperCase() ?? ''),
-            updated: esc(fmtAgo(u.fetchedAt)),
+        const values: Record<string, string> = {}
+        for (const p of PROVIDERS) {
+            const u = this.state(p).usage
+            const model = u ? modelWindow(u) : null
+            const v: Record<string, string> = {
+                session: percent(u?.session ?? null),
+                session_reset: esc(resetIn(u?.session ?? null)),
+                weekly: percent(u?.weekly ?? null),
+                weekly_reset: esc(resetIn(u?.weekly ?? null)),
+                model: percent(model),
+                model_name: esc(model?.label ?? ''),
+                model_reset: esc(resetIn(model)),
+                extra: esc(u?.extra?.text ?? ''),
+                plan: esc(u?.plan?.toUpperCase() ?? ''),
+            }
+            for (const [key] of FORMAT_KEYS) {
+                values[`${p.id}_${key}`] = v[key]
+                if (p.id === 'claude') {
+                    values[key] = v[key]
+                }
+            }
         }
+        const fetchedAt = this.activeProvider() && this.state(this.activeProvider()!).usage?.fetchedAt
+        values.updated = esc(fetchedAt ? fmtAgo(fetchedAt) : '')
         // Escape literal text between placeholders, substitute known placeholders.
         return format.split(/(\{[a-z_]+\})/).map(part => {
             const key = /^\{([a-z_]+)\}$/.exec(part)?.[1]
@@ -228,40 +334,104 @@ export class ClaudeUsageBar {
     private render (): void {
         if (!this.bar) { return }
         const cfg = this.cfg
-        this.bar.hidden = !cfg.enabled
-        if (!cfg.enabled) {
+        const p = this.activeProvider(cfg)
+        this.bar.hidden = !cfg.enabled || !p
+        if (!p) {
             this.togglePop(false)
             return
         }
         const left = cfg.align === 'left'
         this.bar.classList.toggle('cu-left', left)
 
-        const u = this.usage
+        const st = this.state(p)
+        const switchable = this.canSwitch(cfg)
         const main: string[] = []
-        if (u && cfg.format.trim()) {
-            main.push(`<span class="cu-item">${this.renderFormat(u, cfg.format)}</span>`)
+        if (cfg.format.trim()) {
+            main.push(`<span class="cu-item">${this.renderFormat(cfg.format)}</span>`)
         } else {
-            if (cfg.showBrand) { main.push('<span class="cu-brand">✳ Claude</span>') }
-            if (u) {
-                main.push(...this.renderItems(u, cfg))
-            } else if (!this.error) {
+            // The label opens the provider picker, so it stays visible whenever there is something to pick.
+            if (switchable) {
+                main.push(`<span class="cu-brand cu-switch" data-action="switch" title="Switch provider" style="color:${p.color}">${esc(p.brand)} ▾</span>`)
+            } else if (cfg.showBrand) {
+                main.push(`<span class="cu-brand" style="color:${p.color}">${esc(p.brand)}</span>`)
+            }
+            if (st.usage) {
+                main.push(...this.renderItems(st.usage, cfg))
+            } else if (!st.error) {
                 main.push('<span class="cu-muted">loading…</span>')
+            }
+            if (st.error) {
+                main.push(`<span class="cu-err" title="${esc(st.error.message)}">⚠ ${esc(shortError(st.error))}</span>`)
             }
         }
 
         let status = ''
-        if (this.error) {
-            status = `<span class="cu-err" title="${esc(this.error.message)}">⚠ ${esc(this.error instanceof UsageError && this.error.kind === 'rateLimited' ? 'rate limited' : this.error.message)}</span>`
-        } else if (this.loading) {
+        if (st.loading) {
             status = '<span class="cu-muted">refreshing…</span>'
-        } else if (u && cfg.showLastUpdated) {
-            status = `<span class="cu-muted">${fmtAgo(u.fetchedAt)}</span>`
+        } else if (st.usage && cfg.showLastUpdated) {
+            status = `<span class="cu-muted">${fmtAgo(st.usage.fetchedAt)}</span>`
         }
         // Status text sits on the outer side: after the items when left-aligned, before them when right-aligned.
         this.bar.innerHTML = (left ? [...main, status] : [status, ...main]).join('')
         if (this.popOpen) {
             this.renderPop()
         }
+        if (this.menu) {
+            if (switchable) {
+                this.renderMenu()
+            } else {
+                this.toggleMenu(false)
+            }
+        }
+    }
+
+    /** One-line summary for the picker, e.g. "5h 22% · 7d 36%" or "⚠ login expired". */
+    private summary (p: UsageProvider): string {
+        const { usage: u, error } = this.state(p)
+        if (error) {
+            return `⚠ ${shortError(error)}`
+        }
+        if (!u) {
+            return 'loading…'
+        }
+        return [u.session, u.weekly].filter((w): w is UsageWindow => !!w).map(w => `${w.label} ${pct(w)}%`).join(' · ')
+    }
+
+    private toggleMenu (open = !this.menu): void {
+        if (!open) {
+            this.menu?.remove()
+            this.menu = null
+            return
+        }
+        this.togglePop(false)
+        this.menu = document.createElement('div')
+        this.menu.id = 'claude-usage-menu'
+        this.menu.addEventListener('click', e => {
+            const id = (e.target as HTMLElement).closest<HTMLElement>('[data-provider]')?.dataset.provider
+            const p = PROVIDERS.find(x => x.id === id)
+            if (p) {
+                this.selectProvider(p)
+            }
+        })
+        document.body.appendChild(this.menu)
+        this.renderMenu()
+    }
+
+    private renderMenu (): void {
+        if (!this.menu) { return }
+        const active = this.activeProvider()
+        this.menu.innerHTML = this.visibleProviders().map(p =>
+            `<div class="cu-opt" data-provider="${p.id}">` +
+            `<span class="cu-check">${p === active ? '✓' : ''}</span>` +
+            `<span class="cu-brand" style="color:${p.color}">${esc(p.brand)}</span>` +
+            `<span class="cu-sum">${esc(this.summary(p))}</span>` +
+            '</div>').join('')
+        // Open just above the label, kept inside the window.
+        const label = this.bar.querySelector('[data-action="switch"]')
+        const rect = (label ?? this.bar).getBoundingClientRect()
+        const width = this.menu.offsetWidth
+        this.menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))}px`
+        this.menu.style.bottom = `${window.innerHeight - rect.top + 4}px`
     }
 
     private togglePop (open = !this.popOpen): void {
@@ -279,34 +449,39 @@ export class ClaudeUsageBar {
             this.pop = document.createElement('div')
             this.pop.id = 'claude-usage-pop'
             this.pop.addEventListener('click', e => {
-                if ((e.target as HTMLElement).dataset.action === 'refresh') {
-                    void this.refresh()
+                const { action } = (e.target as HTMLElement).dataset
+                const p = this.activeProvider()
+                if (action === 'refresh' && p) {
+                    void this.refresh(p)
                 }
             })
             document.body.appendChild(this.pop)
         }
         this.pop.classList.toggle('cu-left', this.cfg.align === 'left')
-        const u = this.usage
+        const p = this.activeProvider()
+        if (!p) {
+            return
+        }
+        const { usage: u, error, loading } = this.state(p)
         const rows: string[] = []
-        rows.push(`<h4><span>Claude usage</span><span class="cu-sub">${esc(u?.plan ? u.plan.toUpperCase() : '')}</span></h4>`)
-        if (u) {
-            for (const w of u.windows) {
-                const p = pct(w)
-                rows.push(`<div class="cu-row"><div class="cu-row-head"><span>${esc(w.title)}</span><span>${p}% used</span></div>` +
-                    `<div class="cu-big"><i style="width:${p}%;background:${this.color(p)}"></i></div>` +
-                    (w.resetsAt ? `<div class="cu-sub">Resets in ${resetIn(w)} · ${esc(w.resetsAt.toLocaleString())}</div>` : '') +
-                    '</div>')
-            }
-            if (u.extra) {
-                const p = u.extra.limit > 0 ? Math.round(u.extra.used / u.extra.limit * 100) : 0
-                rows.push(`<div class="cu-row"><div class="cu-row-head"><span>Extra usage (month)</span><span>${u.extra.used.toFixed(2)} / ${u.extra.limit.toFixed(2)} ${esc(u.extra.currency)}</span></div>` +
-                    `<div class="cu-big"><i style="width:${Math.min(p, 100)}%;background:${this.color(p)}"></i></div></div>`)
-            }
+        rows.push(`<h4><span style="color:${p.color}">${esc(p.name)} usage</span><span class="cu-sub">${esc(u?.plan ? u.plan.toUpperCase() : '')}</span></h4>`)
+        for (const w of u?.windows ?? []) {
+            const v = pct(w)
+            rows.push(`<div class="cu-row"><div class="cu-row-head"><span>${esc(w.title)}</span><span>${v}% used</span></div>` +
+                `<div class="cu-big"><i style="width:${v}%;background:${this.color(v)}"></i></div>` +
+                (w.resetsAt ? `<div class="cu-sub">Resets in ${resetIn(w)} · ${esc(w.resetsAt.toLocaleString())}</div>` : '') +
+                '</div>')
         }
-        if (this.error) {
-            rows.push(`<div class="cu-row cu-err">${esc(this.error.message)}</div>`)
+        if (u?.extra) {
+            const x = u.extra
+            rows.push(`<div class="cu-row"><div class="cu-row-head"><span>${esc(x.title)}</span><span>${esc(x.text)}</span></div>` +
+                (x.percent !== null ? `<div class="cu-big"><i style="width:${Math.min(x.percent, 100)}%;background:${this.color(x.percent)}"></i></div>` : '') +
+                '</div>')
         }
-        const status = this.loading ? 'Refreshing…' : u ? `Updated ${fmtAgo(u.fetchedAt)} · ${esc(u.credentialSource)}` : ''
+        if (error) {
+            rows.push(`<div class="cu-row cu-err">${esc(error.message)}</div>`)
+        }
+        const status = loading ? 'Refreshing…' : u ? `Updated ${fmtAgo(u.fetchedAt)} · ${sourceHtml(u.credentialSource)}` : ''
         rows.push(`<div class="cu-foot"><span class="cu-sub">${status}</span><button data-action="refresh">Refresh</button></div>`)
         this.pop.innerHTML = rows.join('')
     }

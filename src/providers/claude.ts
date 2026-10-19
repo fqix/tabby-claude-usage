@@ -1,4 +1,4 @@
-// Claude usage fetcher, modeled on CodexBar's Claude OAuth provider:
+// Claude provider, modeled on CodexBar's Claude OAuth provider:
 //   credentials: ~/.claude/.credentials.json, then macOS Keychain "Claude Code-credentials"
 //   endpoint:    GET https://api.anthropic.com/api/oauth/usage  (anthropic-beta: oauth-2025-04-20)
 // Read-only: never rewrites Claude Code's credentials.
@@ -6,48 +6,15 @@
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import * as https from 'https'
 import { execFile } from 'child_process'
+import { httpGet, retryAfterMs, runCli } from './http'
+import { ExtraInfo, ProviderUsage, UsageError, UsageProvider, UsageWindow } from './types'
 
 const KEYCHAIN_SERVICE = 'Claude Code-credentials'
 const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
 const BETA_HEADER = 'oauth-2025-04-20'
 const FALLBACK_CLI_VERSION = '2.1.0'
 const DELEGATED_REFRESH_COOLDOWN_MS = 5 * 60 * 1000
-
-export type UsageErrorKind = 'auth' | 'rateLimited' | 'server' | 'network' | 'credentials'
-
-export class UsageError extends Error {
-    constructor (
-        public kind: UsageErrorKind,
-        message: string,
-        public retryAfterMs: number | null = null,
-    ) {
-        super(message)
-    }
-}
-
-export interface UsageWindow {
-    title: string
-    percent: number
-    resetsAt: Date | null
-}
-
-export interface ExtraUsage {
-    used: number
-    limit: number
-    currency: string
-}
-
-export interface ClaudeUsage {
-    session: UsageWindow | null
-    weekly: UsageWindow | null
-    windows: UsageWindow[]
-    extra: ExtraUsage | null
-    fetchedAt: Date
-    plan: string | null
-    credentialSource: string
-}
 
 interface Credentials {
     accessToken: string
@@ -135,22 +102,6 @@ async function loadCredentials (): Promise<Credentials> {
     return parseCredentials(await readKeychain(), 'Keychain')
 }
 
-/**
- * Run a `claude ...` command. On macOS/Linux it goes through the user's login shell so PATH includes
- * npm/homebrew bins even when Tabby is launched from the desktop; on Windows through cmd.exe.
- */
-function runCli (command: string, timeout: number): Promise<{ ok: boolean, stdout: string }> {
-    return new Promise(resolve => {
-        const done = (err: Error | null, stdout: string): void => resolve({ ok: !err, stdout: stdout || '' })
-        if (process.platform === 'win32') {
-            execFile(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', command], { timeout, cwd: os.tmpdir(), windowsHide: true }, done)
-        } else {
-            const shell = process.env.SHELL ?? (process.platform === 'darwin' ? '/bin/zsh' : '/bin/sh')
-            execFile(shell, ['-lc', command], { timeout, cwd: os.tmpdir() }, done)
-        }
-    })
-}
-
 let cachedCliVersion: string | null = null
 async function detectCliVersion (): Promise<string> {
     if (!cachedCliVersion) {
@@ -171,48 +122,21 @@ async function delegatedRefresh (): Promise<void> {
     await runCli('claude -p /status', 45000)
 }
 
-interface HttpResponse { status: number, headers: Record<string, string | string[] | undefined>, body: string }
-
-function httpGet (url: string, headers: Record<string, string>): Promise<HttpResponse> {
-    return new Promise((resolve, reject) => {
-        const req = https.get(url, { headers, timeout: 30000 }, res => {
-            let body = ''
-            res.setEncoding('utf-8')
-            res.on('data', (c: string) => { body += c })
-            res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body }))
-        })
-        req.on('timeout', () => req.destroy(new Error('Request timed out')))
-        req.on('error', e => reject(new UsageError('network', `Network error: ${e.message}`)))
-    })
-}
-
-function retryAfterMs (header: string | string[] | undefined): number | null {
-    if (typeof header !== 'string' || !header) {
-        return null
-    }
-    const secs = Number(header)
-    if (Number.isFinite(secs)) {
-        return secs * 1000
-    }
-    const date = Date.parse(header)
-    return Number.isFinite(date) ? Math.max(0, date - Date.now()) : null
-}
-
-function toWindow (w: RawWindow | null | undefined, title: string): UsageWindow | null {
+function toWindow (w: RawWindow | null | undefined, title: string, label: string): UsageWindow | null {
     if (typeof w?.utilization !== 'number') {
         return null
     }
-    return { title, percent: w.utilization, resetsAt: w.resets_at ? new Date(w.resets_at) : null }
+    return { title, label, percent: w.utilization, resetsAt: w.resets_at ? new Date(w.resets_at) : null }
 }
 
-export function normalize (raw: RawUsage): Omit<ClaudeUsage, 'plan' | 'credentialSource'> {
-    const session = toWindow(raw.five_hour, 'Session (5h)')
-    const weekly = toWindow(raw.seven_day, 'Weekly (all models)')
+export function normalizeClaude (raw: RawUsage): Pick<ProviderUsage, 'session' | 'weekly' | 'windows' | 'extra'> {
+    const session = toWindow(raw.five_hour, 'Session (5h)', '5h')
+    const weekly = toWindow(raw.seven_day, 'Weekly (all models)', '7d')
     const windows = [
         session,
         weekly,
-        toWindow(raw.seven_day_sonnet, 'Weekly (Sonnet)'),
-        toWindow(raw.seven_day_opus, 'Weekly (Opus)'),
+        toWindow(raw.seven_day_sonnet, 'Weekly (Sonnet)', 'Sonnet'),
+        toWindow(raw.seven_day_opus, 'Weekly (Opus)', 'Opus'),
     ].filter((w): w is UsageWindow => !!w)
 
     const seen = new Set(windows.map(w => w.title))
@@ -229,20 +153,28 @@ export function normalize (raw: RawUsage): Omit<ClaudeUsage, 'plan' | 'credentia
             continue
         }
         seen.add(title)
-        windows.push({ title, percent: limit.percent, resetsAt: limit.resets_at ? new Date(limit.resets_at) : null })
+        windows.push({ title, label: name, percent: limit.percent, resetsAt: limit.resets_at ? new Date(limit.resets_at) : null })
     }
 
-    let extra: ExtraUsage | null = null
+    let extra: ExtraInfo | null = null
     const e = raw.extra_usage
     if (e?.is_enabled && typeof e.used_credits === 'number' && typeof e.monthly_limit === 'number') {
         // OAuth extra usage is reported in cents.
-        extra = { used: e.used_credits / 100, limit: e.monthly_limit / 100, currency: e.currency?.trim() || 'USD' }
+        const used = e.used_credits / 100
+        const limit = e.monthly_limit / 100
+        const currency = e.currency?.trim() || 'USD'
+        extra = {
+            title: 'Extra usage (month)',
+            label: 'extra',
+            text: `${used.toFixed(2)}/${limit.toFixed(0)} ${currency}`,
+            percent: limit > 0 ? Math.round(used / limit * 100) : null,
+        }
     }
 
-    return { session, weekly, windows, extra, fetchedAt: new Date() }
+    return { session, weekly, windows, extra }
 }
 
-export async function fetchUsage (): Promise<ClaudeUsage> {
+async function fetchClaudeUsage (): Promise<ProviderUsage> {
     let creds = await loadCredentials()
     if (isExpired(creds) && creds.source !== 'env') {
         await delegatedRefresh()
@@ -265,7 +197,7 @@ export async function fetchUsage (): Promise<ClaudeUsage> {
         } catch {
             throw new UsageError('server', 'Invalid JSON from Claude usage endpoint')
         }
-        return { ...normalize(raw), plan: creds.subscriptionType, credentialSource: creds.source }
+        return { ...normalizeClaude(raw), plan: creds.subscriptionType, credentialSource: creds.source, fetchedAt: new Date() }
     }
     if (res.status === 401) {
         throw new UsageError('auth', 'Claude OAuth unauthorized. Run `claude` to re-authenticate.')
@@ -277,4 +209,12 @@ export async function fetchUsage (): Promise<ClaudeUsage> {
         throw new UsageError('rateLimited', 'Claude usage endpoint is rate limited.', retryAfterMs(res.headers['retry-after']))
     }
     throw new UsageError('server', `Claude usage HTTP ${res.status}: ${res.body.slice(0, 200)}`)
+}
+
+export const claudeProvider: UsageProvider = {
+    id: 'claude',
+    name: 'Claude',
+    brand: '✳ Claude',
+    color: '#d97757',
+    fetchUsage: fetchClaudeUsage,
 }

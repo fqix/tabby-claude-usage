@@ -4,11 +4,11 @@ import { SettingsTabProvider } from 'tabby-settings'
 import { FORMAT_PLACEHOLDERS } from './config'
 
 const TOGGLES: [key: string, title: string, description: string][] = [
-    ['showBrand', 'Show "✳ Claude" label', ''],
+    ['showBrand', 'Show provider label', '"✳ Claude" / "◎ Codex"; always shown when it is needed to switch providers'],
     ['showSession', 'Show session (5h) limit', ''],
     ['showWeekly', 'Show weekly limit', 'All models'],
-    ['showModelWeekly', 'Show model-specific weekly limit', 'The tightest one, e.g. Sonnet / Opus'],
-    ['showExtraUsage', 'Show extra usage spend', 'Only when extra usage is enabled on your account'],
+    ['showModelWeekly', 'Show model-specific limit', 'The tightest one, e.g. Sonnet / Opus / Codex Spark'],
+    ['showExtraUsage', 'Show extra usage / credits', 'Claude extra usage spend, Codex credits balance'],
     ['showMeters', 'Show progress meters', ''],
     ['showResetTime', 'Show time until reset', ''],
     ['showLastUpdated', 'Show last refresh time', ''],
@@ -17,17 +17,33 @@ const TOGGLES: [key: string, title: string, description: string][] = [
 /** @hidden */
 @Component({
     template: `
-<h3>Claude Usage</h3>
+<h3>AI Usage</h3>
 
 <div class="form-line">
     <div class="header">
         <div class="title">Show status bar</div>
-        <div class="description">Claude subscription usage at the bottom of the window</div>
+        <div class="description">Claude / Codex subscription usage at the bottom of the window</div>
     </div>
     <toggle [(ngModel)]="cfg.enabled" (ngModelChange)="save()"></toggle>
 </div>
 
 <ng-container *ngIf="cfg.enabled">
+    <div class="form-line">
+        <div class="header">
+            <div class="title">Claude</div>
+            <div class="description">Reads the Claude Code login (~/.claude or macOS Keychain)</div>
+        </div>
+        <toggle [(ngModel)]="cfg.showClaude" (ngModelChange)="save()"></toggle>
+    </div>
+
+    <div class="form-line">
+        <div class="header">
+            <div class="title">Codex</div>
+            <div class="description">Reads the Codex ChatGPT login (~/.codex/auth.json); skipped when not logged in. The status bar shows one provider at a time — click its label to pick one.</div>
+        </div>
+        <toggle [(ngModel)]="cfg.showCodex" (ngModelChange)="save()"></toggle>
+    </div>
+
     <div class="form-line">
         <div class="header">
             <div class="title">Alignment</div>
@@ -83,7 +99,7 @@ const TOGGLES: [key: string, title: string, description: string][] = [
     <div class="form-line">
         <div class="header">
             <div class="title">Format</div>
-            <div class="description">Leave empty to use the items above. Example: <code>✳ 5h {{ '{' }}session{{ '}' }} · 7d {{ '{' }}weekly{{ '}' }} ↻{{ '{' }}weekly_reset{{ '}' }}</code></div>
+            <div class="description">Leave empty to use the items above. Example: <code>✳ {{ '{' }}session{{ '}' }} · {{ '{' }}weekly{{ '}' }} │ ◎ {{ '{' }}codex_session{{ '}' }} · {{ '{' }}codex_weekly{{ '}' }}</code></div>
         </div>
     </div>
     <input class="form-control" type="text" placeholder="(default layout)" [(ngModel)]="cfg.format" (ngModelChange)="save()">
@@ -123,7 +139,7 @@ export class ClaudeUsageSettingsTabComponent {
 export class ClaudeUsageSettingsTabProvider extends SettingsTabProvider {
     id = 'claude-usage'
     icon = 'chart-bar'
-    title = 'Claude Usage'
+    title = 'AI Usage'
 
     getComponentType (): any {
         return ClaudeUsageSettingsTabComponent

@@ -32,7 +32,13 @@ export default class ClaudeUsageModule {
         if (window.__claudeUsageBar) {
             return
         }
-        const bar = window.__claudeUsageBar = new ClaudeUsageBar(() => config.store?.claudeUsage)
+        const bar = window.__claudeUsageBar = new ClaudeUsageBar(
+            () => config.store?.claudeUsage,
+            patch => {
+                Object.assign(config.store.claudeUsage, patch)
+                void config.save()
+            },
+        )
         config.ready$.subscribe(() => bar.start())
         config.changed$.subscribe(() => bar.configChanged())
     }
