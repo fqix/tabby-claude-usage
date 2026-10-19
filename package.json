@@ -28,7 +28,8 @@
     "watch": "tsc -p . --watch",
     "test": "npm run build && node --test \"test/*.test.js\"",
     "install-local": "npm run build && node scripts/install-local.js",
-    "prepublishOnly": "npm test"
+    "prepublishOnly": "npm test",
+    "release": "node scripts/release.js"
   },
   "author": "fengqi",
   "license": "MIT",
@@ -48,7 +49,6 @@
     "zone.js": "~0.13.0"
   },
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   }
 }
