@@ -54,9 +54,12 @@ TABBY_PLUGINS=$(pwd) /Applications/Tabby.app/Contents/MacOS/Tabby   # run with t
 
 ## Release
 
-Publishing runs in GitHub Actions ([publish.yml](.github/workflows/publish.yml)) when a `v*` tag is pushed. It needs an npm token in the repo secret `NPM_TOKEN`.
+CI ([ci.yml](.github/workflows/ci.yml)) builds and runs the tests on every push to `main` and every pull request (Linux, macOS, Windows).
+
+Releases are published from a local machine (logged in with `npm login`):
 
 ```bash
-npm version patch          # bumps package.json and creates the vX.Y.Z tag
-git push --follow-tags     # triggers the publish workflow
+npm run release -- patch   # or minor / major / x.y.z
 ```
+
+This bumps the version (`chore(release): x.y.z` commit + `vX.Y.Z` tag), runs the tests, publishes to npm (2FA is confirmed in the browser) and pushes the commit and tag.
