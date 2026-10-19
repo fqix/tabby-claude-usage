@@ -1,6 +1,6 @@
 {
   "name": "tabby-claude-usage",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Show Claude Code and Codex subscription usage limits in a Tabby status bar",
   "repository": {
     "type": "git",
