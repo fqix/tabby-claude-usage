@@ -2,11 +2,14 @@
 // as the last child of <app-root> and shrinks the main window area to make room.
 
 import * as path from 'path'
+import { detectResets, fireworks, loadSnapshot, saveSnapshot, WindowSnapshot } from './celebrate'
 import { ClaudeUsageConfig, DEFAULT_CONFIG, FORMAT_KEYS } from './config'
 import { PROVIDERS, ProviderId, ProviderUsage, UsageError, UsageProvider, UsageWindow } from './providers'
 
 const RATE_LIMIT_BACKOFF_MS = 15 * 60 * 1000
 const TICK_MS = 30 * 1000
+/** Refresh this long after a window's reset time, so the reset (and its fireworks) shows up promptly. */
+const RESET_GRACE_MS = 10 * 1000
 
 const CSS = `
 app-root:has(> #claude-usage-bar:not([hidden])) > .window { height: auto !important; flex: 1 1 0; min-height: 0; }
@@ -232,7 +235,11 @@ export class ClaudeUsageBar {
         const now = Date.now()
         for (const p of PROVIDERS) {
             const st = this.state(p)
-            if (cfg.enabled && this.isEnabled(p, cfg) && now >= st.backoffUntil && now - st.lastAttemptAt >= intervalMs) {
+            const resetDue = st.usage?.windows.some(w => {
+                const due = w.resetsAt ? w.resetsAt.getTime() + RESET_GRACE_MS : Infinity
+                return now >= due && st.lastAttemptAt < due
+            })
+            if (cfg.enabled && this.isEnabled(p, cfg) && now >= st.backoffUntil && (resetDue || now - st.lastAttemptAt >= intervalMs)) {
                 void this.refresh(p)
             }
         }
@@ -253,8 +260,10 @@ export class ClaudeUsageBar {
         st.lastAttemptAt = Date.now()
         this.render()
         try {
+            const prev = st.usage?.windows ?? loadSnapshot(p.id)
             st.usage = await p.fetchUsage()
             st.error = null
+            this.celebrateResets(p, prev, st.usage.windows)
         } catch (e: any) {
             st.error = e
             if (e instanceof UsageError && e.kind === 'rateLimited') {
@@ -266,6 +275,17 @@ export class ClaudeUsageBar {
         } finally {
             st.loading = false
             this.render()
+        }
+    }
+
+    /** Fireworks when a limit that was in use has reset since the last fetch (or the last session). */
+    private celebrateResets (p: UsageProvider, prev: WindowSnapshot[], next: UsageWindow[]): void {
+        saveSnapshot(p.id, next)
+        const cfg = this.cfg
+        if (!cfg.celebrateResets) { return }
+        const resets = detectResets(prev, next, Number(cfg.celebrateMinPercent) || 0)
+        if (resets.length) {
+            fireworks(`🎉 ${p.name} ${resets.map(w => w.title).join(', ')} reset`)
         }
     }
 

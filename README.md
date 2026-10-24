@@ -36,6 +36,8 @@ Settings → **AI Usage** (stored under `claudeUsage` in Tabby's `config.yaml`):
 | `align` | `right` | `left` / `right` |
 | `refreshInterval` | `5` | Minutes between refreshes |
 | `warnThreshold` / `criticalThreshold` | `70` / `90` | Yellow / red at this % |
+| `celebrateResets` | `true` | Fireworks when a usage limit resets (preview in Settings → AI Usage) |
+| `celebrateMinPercent` | `50` | Only celebrate a reset when usage had reached this % |
 | `showBrand`, `showSession`, `showWeekly`, `showModelWeekly`, `showExtraUsage`, `showMeters`, `showResetTime`, `showLastUpdated` | `true` | Toggle individual items |
 | `format` | `''` | Custom template; replaces the item toggles when set |
 

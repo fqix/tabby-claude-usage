@@ -24,6 +24,10 @@ export interface ClaudeUsageConfig {
     showLastUpdated: boolean
     warnThreshold: number
     criticalThreshold: number
+    /** Fireworks when a usage limit resets. */
+    celebrateResets: boolean
+    /** Only celebrate a reset when usage had reached this percent. */
+    celebrateMinPercent: number
     /** Custom template; when non-empty it replaces the item toggles. See FORMAT_PLACEHOLDERS. */
     format: string
 }
@@ -45,6 +49,8 @@ export const DEFAULT_CONFIG: ClaudeUsageConfig = {
     showLastUpdated: true,
     warnThreshold: 70,
     criticalThreshold: 90,
+    celebrateResets: true,
+    celebrateMinPercent: 50,
     format: '',
 }
 

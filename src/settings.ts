@@ -1,6 +1,7 @@
 import { Component, HostBinding, Injectable } from '@angular/core'
 import { ConfigService } from 'tabby-core'
 import { SettingsTabProvider } from 'tabby-settings'
+import { fireworks } from './celebrate'
 import { FORMAT_PLACEHOLDERS } from './config'
 
 const TOGGLES: [key: string, title: string, description: string][] = [
@@ -78,6 +79,25 @@ const TOGGLES: [key: string, title: string, description: string][] = [
         <input class="form-control" type="number" min="0" max="100" [(ngModel)]="cfg.criticalThreshold" (ngModelChange)="save()">
     </div>
 
+    <h3 class="mt-4">Celebration</h3>
+
+    <div class="form-line">
+        <div class="header">
+            <div class="title">Fireworks on reset</div>
+            <div class="description">Celebrate when a usage limit resets</div>
+        </div>
+        <button class="btn btn-secondary me-3" (click)="previewFireworks()">Preview</button>
+        <toggle [(ngModel)]="cfg.celebrateResets" (ngModelChange)="save()"></toggle>
+    </div>
+
+    <div class="form-line" *ngIf="cfg.celebrateResets">
+        <div class="header">
+            <div class="title">Minimum usage before reset (%)</div>
+            <div class="description">Only celebrate when the limit had reached this level; 0 celebrates any reset after use</div>
+        </div>
+        <input class="form-control" type="number" min="0" max="100" [(ngModel)]="cfg.celebrateMinPercent" (ngModelChange)="save()">
+    </div>
+
     <h3 class="mt-4">Items</h3>
 
     <div class="form-line" *ngIf="cfg.format">
@@ -131,6 +151,10 @@ export class ClaudeUsageSettingsTabComponent {
 
     save (): void {
         void this.config.save()
+    }
+
+    previewFireworks (): void {
+        fireworks('🎉 Session (5h) reset')
     }
 }
 
