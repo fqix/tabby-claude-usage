@@ -37,12 +37,49 @@ Settings → **AI Usage** (stored under `claudeUsage` in Tabby's `config.yaml`):
 | `refreshInterval` | `5` | Minutes between refreshes |
 | `warnThreshold` / `criticalThreshold` | `70` / `90` | Yellow / red at this % |
 | `celebrateResets` | `true` | Fireworks when a usage limit resets (preview in Settings → AI Usage) |
-| `celebrateMinPercent` | `50` | Only celebrate a reset when usage had reached this % |
+| `celebrateMinPercent` | `50` | A reset counts (fireworks and webhooks) only when usage had reached this % |
+| `webhookEnabled` | `false` | Send webhooks for the events below |
+| `webhookUrl` | `''` | Webhook URL (stored in plain text) |
+| `webhookTemplate` | generic JSON (below) | JSON request body POSTed for each event |
+| `webhookRules` | session reset, weekly reset, any limit ≥ 90% | Events that send a webhook (see below) |
 | `showBrand`, `showSession`, `showWeekly`, `showModelWeekly`, `showExtraUsage`, `showMeters`, `showResetTime`, `showLastUpdated` | `true` | Toggle individual items |
 | `format` | `''` | Custom template; replaces the item toggles when set |
 
 Format placeholders: `{session}` `{session_reset}` `{weekly}` `{weekly_reset}` `{model}` `{model_name}` `{model_reset}` `{extra}` `{plan}` (Claude; also as `{claude_…}`), the same keys with a `codex_` prefix for Codex, and `{updated}`.
 Example: `✳ {session} · {weekly} │ ◎ {codex_session} · {codex_weekly}`
+
+## Webhooks
+
+Settings → AI Usage → **Webhook**: turn it on, paste the URL, write the JSON template, then choose the events. Each event is a rule:
+
+- **provider**: any / Claude / Codex
+- **limit**: any (including model-specific limits) / Session (5h) / Weekly
+- **event**: *resets*, or *reaches* a percentage you choose
+
+Several rules crossed by one window at once count as one event (the highest threshold). Each event is POSTed once, even with several Tabby windows open. **Send test** (and **Test** on each rule) posts a sample event.
+
+### JSON template
+
+The request body is your template, filled for each event. Placeholders:
+`{{text}}` `{{type}}` `{{provider}}` `{{provider_name}}` `{{window}}` `{{kind}}` `{{label}}` `{{percent}}` `{{previous_percent}}` `{{threshold}}` `{{resets_at}}` `{{sent_at}}`.
+
+A placeholder that is a whole string value becomes the raw JSON value (number, string or null); inside other text it is inserted as text. The default template:
+
+```json
+{
+  "text": "{{text}}",
+  "type": "{{type}}",
+  "provider": "{{provider}}",
+  "window": "{{window}}",
+  "percent": "{{percent}}",
+  "threshold": "{{threshold}}",
+  "resets_at": "{{resets_at}}"
+}
+```
+
+posts e.g. `{"text": "⚠️ Claude Session (5h) at 92% (≥ 90%), resets …", "type": "threshold", "provider": "claude", "window": "Session (5h)", "percent": 92, "threshold": 90, "resets_at": "2026-10-26T07:00:00.000Z"}`.
+
+Chat tools need their own shape, e.g. Slack `{"text": "{{text}}"}`, Feishu `{"msg_type": "text", "content": {"text": "{{text}}"}}`, DingTalk / WeCom `{"msgtype": "text", "text": {"content": "{{text}}"}}`. A 200 response carrying a non-zero `code` / `errcode` counts as a failure. For DingTalk, use a keyword robot (e.g. keyword `Claude`); signed robots are not supported.
 
 ## Development
 

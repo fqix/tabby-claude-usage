@@ -2,9 +2,11 @@
 // as the last child of <app-root> and shrinks the main window area to make room.
 
 import * as path from 'path'
-import { detectResets, fireworks, loadSnapshot, saveSnapshot, WindowSnapshot } from './celebrate'
+import { fireworks } from './celebrate'
 import { ClaudeUsageConfig, DEFAULT_CONFIG, FORMAT_KEYS } from './config'
+import { claimEvents, detectEvents, detectResets, loadSnapshot, saveSnapshot, WindowKind, WindowSnapshot } from './events'
 import { PROVIDERS, ProviderId, ProviderUsage, UsageError, UsageProvider, UsageWindow } from './providers'
+import { sendWebhook, webhookBodies } from './webhook'
 
 const RATE_LIMIT_BACKOFF_MS = 15 * 60 * 1000
 const TICK_MS = 30 * 1000
@@ -263,7 +265,7 @@ export class ClaudeUsageBar {
             const prev = st.usage?.windows ?? loadSnapshot(p.id)
             st.usage = await p.fetchUsage()
             st.error = null
-            this.celebrateResets(p, prev, st.usage.windows)
+            this.handleEvents(p, prev, st.usage)
         } catch (e: any) {
             st.error = e
             if (e instanceof UsageError && e.kind === 'rateLimited') {
@@ -278,14 +280,27 @@ export class ClaudeUsageBar {
         }
     }
 
-    /** Fireworks when a limit that was in use has reset since the last fetch (or the last session). */
-    private celebrateResets (p: UsageProvider, prev: WindowSnapshot[], next: UsageWindow[]): void {
-        saveSnapshot(p.id, next)
+    /** Fireworks for limits that reset, and webhooks for events matching the rules, since the last fetch (or session). */
+    private handleEvents (p: UsageProvider, prev: WindowSnapshot[], u: ProviderUsage): void {
+        saveSnapshot(p.id, u.windows)
         const cfg = this.cfg
-        if (!cfg.celebrateResets) { return }
-        const resets = detectResets(prev, next, Number(cfg.celebrateMinPercent) || 0)
-        if (resets.length) {
+        const minPercent = Number(cfg.celebrateMinPercent) || 0
+
+        const resets = detectResets(prev, u.windows, minPercent)
+        if (cfg.celebrateResets && resets.length) {
             fireworks(`🎉 ${p.name} ${resets.map(w => w.title).join(', ')} reset`)
+        }
+
+        if (!cfg.webhookEnabled || !cfg.webhookUrl.trim()) { return }
+        const kindOf = (w: UsageWindow): WindowKind => w === u.session ? 'session' : w === u.weekly ? 'weekly' : 'model'
+        const events = detectEvents(p, prev, u.windows, kindOf, cfg.webhookRules ?? [], minPercent)
+        const toSend = claimEvents(events)
+        if (toSend.length) {
+            void (async () => {
+                for (const body of webhookBodies(toSend, cfg.webhookTemplate ?? '')) {
+                    await sendWebhook(cfg.webhookUrl, body)
+                }
+            })().catch(e => console.warn('[claude-usage] webhook:', e))
         }
     }
 

@@ -1,6 +1,8 @@
 import { Injectable } from '@angular/core'
 import { ConfigProvider } from 'tabby-core'
 import { ProviderId } from './providers/types'
+import { DEFAULT_RULES, EventRule } from './events'
+import { DEFAULT_TEMPLATE } from './webhook'
 
 /** Stored under `claudeUsage` in Tabby's config.yaml. */
 export interface ClaudeUsageConfig {
@@ -26,8 +28,14 @@ export interface ClaudeUsageConfig {
     criticalThreshold: number
     /** Fireworks when a usage limit resets. */
     celebrateResets: boolean
-    /** Only celebrate a reset when usage had reached this percent. */
+    /** A reset counts (for fireworks and webhooks) only when usage had reached this percent. */
     celebrateMinPercent: number
+    webhookEnabled: boolean
+    webhookUrl: string
+    /** JSON request body sent for each event, with {{placeholders}} (see TEMPLATE_KEYS). */
+    webhookTemplate: string
+    /** Which events send a webhook. */
+    webhookRules: EventRule[]
     /** Custom template; when non-empty it replaces the item toggles. See FORMAT_PLACEHOLDERS. */
     format: string
 }
@@ -51,6 +59,10 @@ export const DEFAULT_CONFIG: ClaudeUsageConfig = {
     criticalThreshold: 90,
     celebrateResets: true,
     celebrateMinPercent: 50,
+    webhookEnabled: false,
+    webhookUrl: '',
+    webhookTemplate: DEFAULT_TEMPLATE,
+    webhookRules: DEFAULT_RULES,
     format: '',
 }
 

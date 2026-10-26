@@ -1,22 +1,27 @@
 import * as os from 'os'
+import * as http from 'http'
 import * as https from 'https'
 import { execFile } from 'child_process'
 import { UsageError } from './types'
 
 export interface HttpResponse { status: number, headers: Record<string, string | string[] | undefined>, body: string }
 
-export function httpGet (url: string, headers: Record<string, string>): Promise<HttpResponse> {
+export function httpRequest (method: string, url: string, headers: Record<string, string>, body?: string): Promise<HttpResponse> {
     return new Promise((resolve, reject) => {
-        const req = https.get(url, { headers, timeout: 30000 }, res => {
-            let body = ''
+        const client = url.startsWith('http:') ? http : https
+        const req = client.request(url, { method, headers, timeout: 30000 }, res => {
+            let data = ''
             res.setEncoding('utf-8')
-            res.on('data', (c: string) => { body += c })
-            res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body }))
+            res.on('data', (c: string) => { data += c })
+            res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: data }))
         })
         req.on('timeout', () => req.destroy(new Error('Request timed out')))
         req.on('error', e => reject(new UsageError('network', `Network error: ${e.message}`)))
+        req.end(body)
     })
 }
+
+export const httpGet = (url: string, headers: Record<string, string>): Promise<HttpResponse> => httpRequest('GET', url, headers)
 
 export function retryAfterMs (header: string | string[] | undefined): number | null {
     if (typeof header !== 'string' || !header) {

@@ -1,47 +1,4 @@
-// Fireworks overlay shown when a usage limit resets, plus the reset detection behind it.
-
-import { ProviderId, UsageWindow } from './providers/types'
-
-export type WindowSnapshot = Pick<UsageWindow, 'title' | 'percent' | 'resetsAt'>
-
-/**
- * Windows in `next` that reset since `prev`: usage was at least `minPercent` (and above 0), has dropped,
- * and the window rolled over (its reset time moved later, or one side has no reset time).
- */
-export function detectResets (prev: WindowSnapshot[], next: UsageWindow[], minPercent: number): UsageWindow[] {
-    return next.filter(w => {
-        const old = prev.find(x => x.title === w.title)
-        if (!old || old.percent <= 0 || old.percent < minPercent || w.percent >= old.percent) {
-            return false
-        }
-        return !old.resetsAt || !w.resetsAt || w.resetsAt.getTime() > old.resetsAt.getTime()
-    })
-}
-
-// Last seen windows per provider, so a reset that happened while Tabby was closed is still noticed.
-const SNAPSHOT_KEY = 'claudeUsage.windows'
-
-function readSnapshots (): Record<string, any[]> {
-    try {
-        return JSON.parse(localStorage.getItem(SNAPSHOT_KEY) ?? '{}') ?? {}
-    } catch {
-        return {}
-    }
-}
-
-export function loadSnapshot (id: ProviderId): WindowSnapshot[] {
-    const list = readSnapshots()[id]
-    if (!Array.isArray(list)) { return [] }
-    return list.map(w => ({ title: String(w.title), percent: Number(w.percent), resetsAt: w.resetsAt ? new Date(w.resetsAt) : null }))
-}
-
-export function saveSnapshot (id: ProviderId, windows: WindowSnapshot[]): void {
-    try {
-        const all = readSnapshots()
-        all[id] = windows.map(({ title, percent, resetsAt }) => ({ title, percent, resetsAt }))
-        localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(all))
-    } catch { }
-}
+// Fireworks overlay shown when a usage limit resets (detection is in events.ts).
 
 interface Spark {
     x: number
