@@ -44,7 +44,8 @@ Settings → **AI Usage** (stored under `claudeUsage` in Tabby's `config.yaml`):
 | `webhookRules` | session reset, weekly reset, any limit ≥ 90% | Events that send a webhook (see below) |
 | `showBrand`, `showSession`, `showWeekly`, `showModelWeekly`, `showExtraUsage`, `showMeters`, `showResetTime`, `showLastUpdated` | `true` | Toggle individual items |
 | `showSessionChart` | `true` | Chart of the current 5h session in the details popover |
-| `format` | `''` | Custom template; replaces the item toggles when set |
+| `useCustomFormat` | `false` | Use `format` instead of the item toggles |
+| `format` | `''` | Custom template; replaces the item toggles when `useCustomFormat` is on |
 
 Format placeholders: `{session}` `{session_reset}` `{weekly}` `{weekly_reset}` `{model}` `{model_name}` `{model_reset}` `{extra}` `{plan}` (Claude; also as `{claude_…}`), the same keys with a `codex_` prefix for Codex, and `{updated}`.
 Example: `✳ {session} · {weekly} │ ◎ {codex_session} · {codex_weekly}`

@@ -35,7 +35,7 @@ interface Section {
     extra?: 'placeholders' | 'webhookRules'
 }
 
-const usesFormat = (cfg: ClaudeUsageConfig): boolean => !!cfg.format?.trim()
+const usesFormat = (cfg: ClaudeUsageConfig): boolean => cfg.useCustomFormat && !!cfg.format?.trim()
 
 const SECTIONS: Section[] = [
     {
@@ -66,7 +66,7 @@ const SECTIONS: Section[] = [
     },
     {
         title: 'Status bar items',
-        description: cfg => usesFormat(cfg) ? 'A custom format is set below, so these toggles are ignored.' : '',
+        description: cfg => usesFormat(cfg) ? 'The custom format below is on, so these toggles are ignored.' : '',
         needsEnabled: true,
         fields: ([
             ['showBrand', 'Provider label', '"✳ Claude" / "◎ Codex"; always shown when it is needed to switch providers'],
@@ -93,9 +93,11 @@ const SECTIONS: Section[] = [
         title: 'Custom format',
         needsEnabled: true,
         fields: [
+            { key: 'useCustomFormat', type: 'toggle', title: 'Use custom format', description: 'Replace the items above with your own template' },
             {
                 key: 'format', type: 'text', title: 'Format', placeholder: '(default layout)',
-                description: 'Leave empty to use the items above. Example: ✳ {session} · {weekly} │ ◎ {codex_session} · {codex_weekly}',
+                description: 'Example: ✳ {session} · {weekly} │ ◎ {codex_session} · {codex_weekly}',
+                show: c => c.useCustomFormat,
             },
         ],
         extra: 'placeholders',
@@ -165,7 +167,7 @@ const SECTIONS: Section[] = [
             </div>
         </ng-container>
 
-        <table *ngIf="s.extra === 'placeholders'" class="table table-sm mt-2 placeholders">
+        <table *ngIf="s.extra === 'placeholders' && cfg.useCustomFormat" class="table table-sm mt-2 placeholders">
             <tr *ngFor="let p of placeholders">
                 <td><code>{{ p[0] }}</code></td>
                 <td>{{ p[1] }}</td>

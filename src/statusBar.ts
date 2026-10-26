@@ -411,7 +411,7 @@ export class ClaudeUsageBar {
         const st = this.state(p)
         const switchable = this.canSwitch(cfg)
         const main: string[] = []
-        if (cfg.format.trim()) {
+        if (cfg.useCustomFormat && cfg.format.trim()) {
             main.push(`<span class="cu-item">${this.renderFormat(cfg.format)}</span>`)
         } else {
             // The label opens the provider picker, so it stays visible whenever there is something to pick.

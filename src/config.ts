@@ -38,7 +38,9 @@ export interface ClaudeUsageConfig {
     webhookTemplate: string
     /** Which events send a webhook. */
     webhookRules: EventRule[]
-    /** Custom template; when non-empty it replaces the item toggles. See FORMAT_PLACEHOLDERS. */
+    /** Use `format` instead of the item toggles. */
+    useCustomFormat: boolean
+    /** Custom template; when enabled and non-empty it replaces the item toggles. See FORMAT_PLACEHOLDERS. */
     format: string
 }
 
@@ -66,6 +68,7 @@ export const DEFAULT_CONFIG: ClaudeUsageConfig = {
     webhookUrl: '',
     webhookTemplate: DEFAULT_TEMPLATE,
     webhookRules: DEFAULT_RULES,
+    useCustomFormat: false,
     format: '',
 }
 
