@@ -82,6 +82,14 @@ const SECTIONS: Section[] = [
         })),
     },
     {
+        title: 'Details',
+        description: 'Shown when you click the status bar.',
+        needsEnabled: true,
+        fields: [
+            { key: 'showSessionChart', type: 'toggle', title: 'Session chart', description: 'Usage over the current 5h window, with the projected pace until the reset' },
+        ],
+    },
+    {
         title: 'Custom format',
         needsEnabled: true,
         fields: [

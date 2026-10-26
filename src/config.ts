@@ -24,6 +24,8 @@ export interface ClaudeUsageConfig {
     showMeters: boolean
     showResetTime: boolean
     showLastUpdated: boolean
+    /** Session usage chart in the details popover. */
+    showSessionChart: boolean
     warnThreshold: number
     criticalThreshold: number
     /** Fireworks when a usage limit resets. */
@@ -55,6 +57,7 @@ export const DEFAULT_CONFIG: ClaudeUsageConfig = {
     showMeters: true,
     showResetTime: true,
     showLastUpdated: true,
+    showSessionChart: true,
     warnThreshold: 70,
     criticalThreshold: 90,
     celebrateResets: true,

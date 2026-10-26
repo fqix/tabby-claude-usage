@@ -3,7 +3,9 @@
 
 import * as path from 'path'
 import { fireworks } from './celebrate'
+import { sessionChartSvg } from './chart'
 import { ClaudeUsageConfig, DEFAULT_CONFIG, FORMAT_KEYS } from './config'
+import { loadSamples, project, recordSample, sessionSeries } from './history'
 import { claimEvents, detectEvents, detectResets, loadSnapshot, saveSnapshot, WindowKind, WindowSnapshot } from './events'
 import { PROVIDERS, ProviderId, ProviderUsage, UsageError, UsageProvider, UsageWindow } from './providers'
 import { sendWebhook, webhookBodies } from './webhook'
@@ -61,6 +63,9 @@ app-root:has(> #claude-usage-bar:not([hidden])) > .window { height: auto !import
 #claude-usage-pop .cu-big { height: 6px; border-radius: 3px; background: rgba(128,128,128,.25); overflow: hidden; }
 #claude-usage-pop .cu-big > i { display: block; height: 100%; border-radius: 3px; }
 #claude-usage-pop .cu-sub { opacity: .6; font-size: 11px; }
+#claude-usage-pop .cu-chart { display: block; margin-top: 6px; overflow: visible; }
+#claude-usage-pop .cu-axis { display: flex; justify-content: space-between; gap: 8px; font-size: 10px; opacity: .6; margin-top: 2px; }
+#claude-usage-pop .cu-pace-hot { color: #e5534b; opacity: 1; }
 #claude-usage-pop .cu-foot { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
 #claude-usage-pop .cu-foot .cu-sub { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #claude-usage-pop .cu-foot button { flex: none; }
@@ -265,6 +270,7 @@ export class ClaudeUsageBar {
             const prev = st.usage?.windows ?? loadSnapshot(p.id)
             st.usage = await p.fetchUsage()
             st.error = null
+            recordSample(p.id, st.usage.session)
             this.handleEvents(p, prev, st.usage)
         } catch (e: any) {
             st.error = e
@@ -302,6 +308,30 @@ export class ClaudeUsageBar {
                 }
             })().catch(e => console.warn('[claude-usage] webhook:', e))
         }
+    }
+
+    /** Usage over the current session window, with the projected pace until the reset. */
+    private sessionChart (p: UsageProvider, session: UsageWindow): string {
+        const series = sessionSeries(loadSamples(p.id), session)
+        if (!series) { return '' }
+        const cfg = this.cfg
+        const now = Date.now()
+        const projection = project(series)
+        const time = (t: number): string => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        let pace = ''
+        if (projection?.hitsLimitAt !== null && projection?.hitsLimitAt !== undefined) {
+            pace = `<span class="cu-pace-hot">At this pace: limit in ${fmtDuration(projection.hitsLimitAt - now)}</span>`
+        } else if (projection) {
+            pace = `<span>At this pace: ~${Math.round(projection.atReset)}% at reset</span>`
+        }
+        const svg = sessionChartSvg(series, projection, now, {
+            color: p.color,
+            warnThreshold: Number(cfg.warnThreshold),
+            criticalThreshold: Number(cfg.criticalThreshold),
+            warnColor: '#d4a72c',
+            criticalColor: '#e5534b',
+        })
+        return `${svg}<div class="cu-axis"><span>${time(series.start)}</span>${pace}<span>${time(series.end)}</span></div>`
     }
 
     private color (pct: number): string {
@@ -505,6 +535,7 @@ export class ClaudeUsageBar {
             rows.push(`<div class="cu-row"><div class="cu-row-head"><span>${esc(w.title)}</span><span>${v}% used</span></div>` +
                 `<div class="cu-big"><i style="width:${v}%;background:${this.color(v)}"></i></div>` +
                 (w.resetsAt ? `<div class="cu-sub">Resets in ${resetIn(w)} · ${esc(w.resetsAt.toLocaleString())}</div>` : '') +
+                (w === u?.session && this.cfg.showSessionChart ? this.sessionChart(p, w) : '') +
                 '</div>')
         }
         if (u?.extra) {

@@ -2,7 +2,7 @@
 
 A [Tabby](https://github.com/Eugeny/tabby) plugin that shows your **Claude** (Claude Code / claude.ai plan) and **Codex** (ChatGPT plan) usage limits in a status bar at the bottom of the window. Approach borrowed from [CodexBar](https://github.com/steipete/CodexBar)'s Claude and Codex providers.
 
-The status bar shows one provider at a time: click its label (e.g. `✳ Claude ▾`) to pick another provider, click anywhere else for details.
+The status bar shows one provider at a time: click its label (e.g. `✳ Claude ▾`) to pick another provider, click anywhere else for details. The details include a chart of the current 5h session (from the samples taken at each refresh) with the projected pace until the reset.
 
 ## Install
 
@@ -43,6 +43,7 @@ Settings → **AI Usage** (stored under `claudeUsage` in Tabby's `config.yaml`):
 | `webhookTemplate` | generic JSON (below) | JSON request body POSTed for each event |
 | `webhookRules` | session reset, weekly reset, any limit ≥ 90% | Events that send a webhook (see below) |
 | `showBrand`, `showSession`, `showWeekly`, `showModelWeekly`, `showExtraUsage`, `showMeters`, `showResetTime`, `showLastUpdated` | `true` | Toggle individual items |
+| `showSessionChart` | `true` | Chart of the current 5h session in the details popover |
 | `format` | `''` | Custom template; replaces the item toggles when set |
 
 Format placeholders: `{session}` `{session_reset}` `{weekly}` `{weekly_reset}` `{model}` `{model_name}` `{model_reset}` `{extra}` `{plan}` (Claude; also as `{claude_…}`), the same keys with a `codex_` prefix for Codex, and `{updated}`.
