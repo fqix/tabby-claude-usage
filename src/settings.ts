@@ -1,7 +1,7 @@
 import { ChangeDetectorRef, Component, HostBinding, Injectable } from '@angular/core'
 import { ConfigService } from 'tabby-core'
 import { SettingsTabProvider } from 'tabby-settings'
-import { fireworks } from './celebrate'
+import { celebrate, EFFECTS } from './celebrate'
 import { ClaudeUsageConfig, FORMAT_PLACEHOLDERS } from './config'
 import { DEFAULT_RULES, EventRule, UsageEvent } from './events'
 import { DEFAULT_TEMPLATE, eventMessage, sendWebhook, TEMPLATE_KEYS, webhookBodies } from './webhook'
@@ -22,7 +22,7 @@ interface Field {
     /** Dimmed (still editable) when this returns true. */
     dim?: (cfg: ClaudeUsageConfig) => boolean
     /** A button next to the control, handled by `action()`. */
-    action?: { id: 'previewFireworks' | 'testWebhook', label: string }
+    action?: { id: 'previewCelebration' | 'testWebhook', label: string }
 }
 
 interface Section {
@@ -107,12 +107,16 @@ const SECTIONS: Section[] = [
         needsEnabled: true,
         fields: [
             {
-                key: 'celebrateResets', type: 'toggle', title: 'Fireworks on reset', description: 'Celebrate when a usage limit resets',
-                action: { id: 'previewFireworks', label: 'Preview' },
+                key: 'celebrateResets', type: 'toggle', title: 'Celebrate resets', description: 'A full-window effect when a usage limit resets',
+            },
+            {
+                key: 'celebrateEffect', type: 'select', title: 'Effect', options: EFFECTS,
+                show: c => c.celebrateResets,
+                action: { id: 'previewCelebration', label: 'Preview' },
             },
             {
                 key: 'celebrateMinPercent', type: 'number', title: 'Minimum usage before a reset counts (%)',
-                description: 'Applies to fireworks and reset webhooks; 0 counts any reset after use', min: 0, max: 100,
+                description: 'Applies to the celebration and reset webhooks; 0 counts any reset after use', min: 0, max: 100,
             },
         ],
     },
@@ -286,9 +290,9 @@ export class ClaudeUsageSettingsTabComponent {
         this.save()
     }
 
-    action (id: 'previewFireworks' | 'testWebhook'): void {
-        if (id === 'previewFireworks') {
-            fireworks('🎉 Session (5h) reset')
+    action (id: 'previewCelebration' | 'testWebhook'): void {
+        if (id === 'previewCelebration') {
+            celebrate(this.cfg.celebrateEffect, '🎉 Session (5h) reset')
         } else {
             void this.testWebhook()
         }

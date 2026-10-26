@@ -2,7 +2,7 @@
 // as the last child of <app-root> and shrinks the main window area to make room.
 
 import * as path from 'path'
-import { fireworks } from './celebrate'
+import { celebrate } from './celebrate'
 import { sessionChartSvg } from './chart'
 import { ClaudeUsageConfig, DEFAULT_CONFIG, FORMAT_KEYS } from './config'
 import { loadSamples, project, recordSample, sessionSeries } from './history'
@@ -12,7 +12,7 @@ import { sendWebhook, webhookBodies } from './webhook'
 
 const RATE_LIMIT_BACKOFF_MS = 15 * 60 * 1000
 const TICK_MS = 30 * 1000
-/** Refresh this long after a window's reset time, so the reset (and its fireworks) shows up promptly. */
+/** Refresh this long after a window's reset time, so the reset (and its celebration) shows up promptly. */
 const RESET_GRACE_MS = 10 * 1000
 
 const CSS = `
@@ -286,7 +286,7 @@ export class ClaudeUsageBar {
         }
     }
 
-    /** Fireworks for limits that reset, and webhooks for events matching the rules, since the last fetch (or session). */
+    /** A celebration for limits that reset, and webhooks for events matching the rules, since the last fetch (or session). */
     private handleEvents (p: UsageProvider, prev: WindowSnapshot[], u: ProviderUsage): void {
         saveSnapshot(p.id, u.windows)
         const cfg = this.cfg
@@ -294,7 +294,7 @@ export class ClaudeUsageBar {
 
         const resets = detectResets(prev, u.windows, minPercent)
         if (cfg.celebrateResets && resets.length) {
-            fireworks(`🎉 ${p.name} ${resets.map(w => w.title).join(', ')} reset`)
+            celebrate(cfg.celebrateEffect, `🎉 ${p.name} ${resets.map(w => w.title).join(', ')} reset`)
         }
 
         if (!cfg.webhookEnabled || !cfg.webhookUrl.trim()) { return }

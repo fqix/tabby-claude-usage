@@ -1,5 +1,6 @@
 import { Injectable } from '@angular/core'
 import { ConfigProvider } from 'tabby-core'
+import { EffectId } from './celebrate'
 import { ProviderId } from './providers/types'
 import { DEFAULT_RULES, EventRule } from './events'
 import { DEFAULT_TEMPLATE } from './webhook'
@@ -28,9 +29,10 @@ export interface ClaudeUsageConfig {
     showSessionChart: boolean
     warnThreshold: number
     criticalThreshold: number
-    /** Fireworks when a usage limit resets. */
+    /** A full-window celebration when a usage limit resets. */
     celebrateResets: boolean
-    /** A reset counts (for fireworks and webhooks) only when usage had reached this percent. */
+    celebrateEffect: EffectId
+    /** A reset counts (for the celebration and webhooks) only when usage had reached this percent. */
     celebrateMinPercent: number
     webhookEnabled: boolean
     webhookUrl: string
@@ -63,6 +65,7 @@ export const DEFAULT_CONFIG: ClaudeUsageConfig = {
     warnThreshold: 70,
     criticalThreshold: 90,
     celebrateResets: true,
+    celebrateEffect: 'fireworks',
     celebrateMinPercent: 50,
     webhookEnabled: false,
     webhookUrl: '',

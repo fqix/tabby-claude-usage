@@ -36,8 +36,9 @@ Settings → **AI Usage** (stored under `claudeUsage` in Tabby's `config.yaml`):
 | `align` | `right` | `left` / `right` |
 | `refreshInterval` | `5` | Minutes between refreshes |
 | `warnThreshold` / `criticalThreshold` | `70` / `90` | Yellow / red at this % |
-| `celebrateResets` | `true` | Fireworks when a usage limit resets (preview in Settings → AI Usage) |
-| `celebrateMinPercent` | `50` | A reset counts (fireworks and webhooks) only when usage had reached this % |
+| `celebrateResets` | `true` | A full-window celebration when a usage limit resets (preview in Settings → AI Usage) |
+| `celebrateEffect` | `fireworks` | `fireworks` / `confetti` / `balloons` / `emoji` (emoji rain) / `random` |
+| `celebrateMinPercent` | `50` | A reset counts (celebration and webhooks) only when usage had reached this % |
 | `webhookEnabled` | `false` | Send webhooks for the events below |
 | `webhookUrl` | `''` | Webhook URL (stored in plain text) |
 | `webhookTemplate` | generic JSON (below) | JSON request body POSTed for each event |
